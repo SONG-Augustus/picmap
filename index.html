@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>지반 조사 종합 지도</title>
+  <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=40f614ea3ff4bf0ed09944ae699802fa&libraries=services"></script>
+  <style>
+    body { font-family: 'Noto Sans KR', sans-serif; margin: 0; padding: 0; overflow: hidden; }
+    
+    /* 상단 컨트롤 바 */
+    .controls {
+      background: #333; color: white; padding: 10px 20px;
+      display: flex; align-items: center; gap: 10px; height: 50px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    h2 { margin: 0; font-size: 18px; margin-right: 20px; white-space: nowrap; }
+    
+    #btn-container { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 2px; }
+    
+    /* 연도 버튼 스타일 */
+    .year-btn {
+      background: #555; color: #ddd; border: 1px solid #777;
+      padding: 6px 12px; cursor: pointer; border-radius: 4px;
+      transition: all 0.2s; font-size: 14px; white-space: nowrap;
+    }
+    .year-btn:hover { background: #777; color: white; }
+    .year-btn.active { background: #00C853; color: white; border-color: #00C853; font-weight: bold; }
+    
+    #map { width: 100%; height: calc(100vh - 70px); position: relative; }
+    
+    /* 로딩 창 */
+    #loading {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center;
+      color: white; font-size: 20px; z-index: 2000;
+    }
+
+    /* 초기 안내 문구 */
+    #intro-msg {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(255,255,255,0.9); padding: 20px 40px; border-radius: 10px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2); text-align: center; z-index: 500;
+      font-size: 18px; font-weight: bold; color: #333; pointer-events: none;
+    }
+
+    /* 범례 */
+    .map-legend {
+      position: absolute; bottom: 20px; right: 20px; background: rgba(255,255,255,0.95);
+      padding: 15px; border-radius: 10px; z-index: 10; font-size: 13px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+    .legend-item { display: flex; align-items: center; margin: 5px 0; }
+    .legend-color { width: 15px; height: 15px; border-radius: 50%; margin-right: 8px; }
+    
+    /* 이미지 모달 */
+    #imageModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 9999; justify-content: center; align-items: center; }
+    #modalImage { max-width: 95%; max-height: 95%; border: 2px solid white; }
+    .info-image { width: 100%; max-width: 250px; margin-top: 5px; cursor: pointer; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <div class="controls">
+    <h2>🗺️ 지반 조사 지도</h2>
+    <div id="btn-container">
+      </div>
+    <div style="flex-grow:1;"></div>
+    <button onclick="toggleMapType()" style="cursor:pointer; padding:5px 10px; background:#444; color:white; border:none; border-radius:4px;">🛰 위성/지도</button>
+  </div>
+
+  <div id="loading">목록을 불러오는 중...</div>
+  
+  <div id="map">
+    <div id="intro-msg">👆 상단 버튼을 눌러 데이터를 불러오세요</div>
+
+    <div class="map-legend">
+      <strong>범례</strong>
+      <div class="legend-item"><div class="legend-color" style="background:#808080;"></div>양호 <span class="cnt-good">0</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#00C853;"></div>일반 <span class="cnt-normal">0</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#FFD600;"></div>우선 <span class="cnt-priority">0</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#D50000;"></div>긴급 <span class="cnt-urgent">0</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#2196F3;"></div>GPR <span class="cnt-gpr">0</span></div>
+    </div>
+  </div>
+
+  <div id="imageModal"><img id="modalImage" src=""></div>
+
+  <script>
+    // ==========================================
+    // ⚠️ 구글 앱스 스크립트 URL (그대로 유지)
+    // ==========================================
+    const DATA_SERVER_URL = "https://script.google.com/macros/s/AKfycbwC3IVpDY0q_V3IKSd3LJ3V9wBvYjPw3oeSWRVJ9GQv_kKvOe8j-eegzwNcpKn1L6H3/exec";
+
+    let map, isHybrid = true, markers = [];
+    let gradeCount = { good: 0, normal: 0, priority: 0, urgent: 0, gpr: 0 };
+
+    // 1. 초기화 및 버튼 목록 가져오기
+    window.onload = async function() {
+      initMap();
+      
+      try {
+        // GAS에 파일 목록 요청
+        const response = await fetch(`${DATA_SERVER_URL}?action=getList`);
+        const fileList = await response.json();
+        
+        const container = document.getElementById('btn-container');
+        document.getElementById('loading').style.display = 'none'; // 목록 로딩 끝
+
+        if(fileList.length === 0) {
+          alert("폴더에 구글 스프레드시트 파일이 없습니다.");
+          return;
+        }
+
+        // 버튼 생성
+        fileList.forEach((file) => {
+          const btn = document.createElement('button');
+          btn.className = 'year-btn';
+          btn.textContent = file.name;
+          btn.onclick = () => loadSheetData(file.id, btn);
+          container.appendChild(btn);
+        });
+        
+        // [변경점] 여기서는 아무 버튼도 클릭하지 않음 (사용자 클릭 대기)
+
+      } catch (e) {
+        alert("목록 로딩 실패: " + e);
+        document.getElementById('loading').innerText = "로딩 실패 (새로고침 하세요)";
+      }
+    };
+
+    // 2. 엑셀 데이터 불러와서 지도에 그리기 (버튼 클릭 시 실행)
+    async function loadSheetData(fileId, btnElement) {
+      // 안내 문구 숨기기
+      const introMsg = document.getElementById('intro-msg');
+      if(introMsg) introMsg.style.display = 'none';
+
+      // 버튼 스타일 활성화
+      document.querySelectorAll('.year-btn').forEach(b => b.classList.remove('active'));
+      btnElement.classList.add('active');
+      
+      // 로딩 화면 표시
+      document.getElementById('loading').textContent = "데이터를 불러오는 중입니다...";
+      document.getElementById('loading').style.display = 'flex';
+      
+      try {
+        const response = await fetch(`${DATA_SERVER_URL}?action=getData&fileId=${fileId}`);
+        const data = await response.json();
+        
+        // 기존 마커 삭제 및 초기화
+        markers.forEach(m => m.setMap(null));
+        markers = [];
+        gradeCount = { good: 0, normal: 0, priority: 0, urgent: 0, gpr: 0 };
+        
+        // 데이터 처리 (mainData 필드 확인)
+        if (data.mainData && data.mainData.length > 0) {
+           processRows(data.mainData);
+        } else {
+           alert("데이터가 없거나 시트 형식이 맞지 않습니다.");
+        }
+        
+        updateLegend();
+        document.getElementById('loading').style.display = 'none'; // 로딩 끝
+        
+      } catch (e) {
+        alert("데이터 로딩 실패: " + e);
+        document.getElementById('loading').style.display = 'none';
+      }
+    }
+
+    function processRows(rows) {
+      rows.forEach(row => {
+        if (!row.lat || !row.lng) return;
+        
+        const pos = new kakao.maps.LatLng(row.lat, row.lng);
+        let color = "#808080", shape = "circle", size = 20;
+        
+        // F열(grade) 값으로 스타일 결정
+        const grade = String(row.grade || "");
+
+        if (grade.includes("시종점")) { shape = "triangle"; color = "#D50000"; size = 15; }
+        else if (grade.includes("일반")) { color = "#00C853"; gradeCount.normal++; }
+        else if (grade.includes("우선")) { color = "#FFD600"; gradeCount.priority++; }
+        else if (grade.includes("긴급")) { color = "#D50000"; gradeCount.urgent++; }
+        else if (grade.includes("GPR") || grade.includes("관찰")) { color = "#2196F3"; gradeCount.gpr++; }
+        else { gradeCount.good++; }
+
+        const marker = new kakao.maps.Marker({
+          position: pos,
+          image: createMarkerShape(shape, size, color),
+          map: map
+        });
+        markers.push(marker);
+
+        // 인포윈도우 내용
+        // [중요] convertDriveLink 함수 사용
+        const imgUrl = convertDriveLink(row.img);
+        
+        const content = `
+          <div style="padding:10px; min-width:200px; font-size:12px;">
+            <strong style="font-size:14px;">${row.name || "지점"}</strong><br>
+            <span style="color:${color}">●</span> ${grade}<br>
+            ${imgUrl ? `<img src="${imgUrl}" class="info-image">` : ""}
+            <p style="margin:5px 0 0; color:#666;">${row.desc || ""}</p>
+          </div>
+        `;
+        const infowindow = new kakao.maps.InfoWindow({ content: content, removable: true });
+        kakao.maps.event.addListener(marker, 'click', () => infowindow.open(map, marker));
+      });
+      
+      // 마커가 찍힌 곳으로 지도 중심 이동 (첫 번째 데이터 기준)
+      if (rows.length > 0 && rows[0].lat) {
+        map.panTo(new kakao.maps.LatLng(rows[0].lat, rows[0].lng));
+      }
+    }
+
+    // [수정됨] 구글 드라이브 썸네일 링크 변환 (엑스박스 해결)
+    function convertDriveLink(url) {
+      if (!url) return "";
+      url = String(url);
+      const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) {
+        // sz=w1000 은 너비 1000px 고화질 썸네일 요청
+        return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w1000`;
+      }
+      return url;
+    }
+
+    function initMap() {
+      map = new kakao.maps.Map(document.getElementById('map'), {
+        center: new kakao.maps.LatLng(37.52783, 126.84887), level: 7
+      });
+    }
+    
+    function toggleMapType() {
+      map.setMapTypeId(isHybrid ? kakao.maps.MapTypeId.ROADMAP : kakao.maps.MapTypeId.SKYVIEW);
+      isHybrid = !isHybrid;
+    }
+
+    function createMarkerShape(type, size, color) {
+      const c = document.createElement("canvas");
+      c.width = size; c.height = size;
+      const ctx = c.getContext("2d");
+      ctx.beginPath();
+      if(type==="circle") ctx.arc(size/2, size/2, size/2-1, 0, Math.PI*2);
+      else { ctx.moveTo(size/2,0); ctx.lineTo(0,size); ctx.lineTo(size,size); }
+      ctx.fillStyle = color; ctx.fill(); 
+      ctx.strokeStyle = "#fff"; ctx.stroke();
+      return new kakao.maps.MarkerImage(c.toDataURL(), new kakao.maps.Size(size,size));
+    }
+
+    function updateLegend() {
+      document.querySelector(".cnt-good").innerText = gradeCount.good;
+      document.querySelector(".cnt-normal").innerText = gradeCount.normal;
+      document.querySelector(".cnt-priority").innerText = gradeCount.priority;
+      document.querySelector(".cnt-urgent").innerText = gradeCount.urgent;
+      document.querySelector(".cnt-gpr").innerText = gradeCount.gpr;
+    }
+
+    // 이미지 클릭 시 확대 (모달)
+    document.addEventListener("click", e => {
+      if (e.target.classList.contains("info-image")) {
+        document.getElementById("modalImage").src = e.target.src;
+        document.getElementById("imageModal").style.display = "flex";
+      }
+    });
+    document.getElementById("imageModal").onclick = () => document.getElementById("imageModal").style.display = "none";
+  </script>
+</body>
+</html>
