@@ -210,10 +210,10 @@
         kakao.maps.event.addListener(marker, 'click', () => infowindow.open(map, marker));
       });
       
-      // 마커가 찍힌 곳으로 지도 중심 이동 (첫 번째 데이터 기준)
-      if (rows.length > 0 && rows[0].lat) {
-        map.panTo(new kakao.maps.LatLng(rows[0].lat, rows[0].lng));
-      }
+      // (삭제) 마커가 찍힌 곳으로 지도 중심 이동 (첫 번째 데이터 기준)
+      // if (rows.length > 0 && rows[0].lat) {
+      //   map.panTo(new kakao.maps.LatLng(rows[0].lat, rows[0].lng));
+      // }
     }
 
     // [수정됨] 구글 드라이브 썸네일 링크 변환 (엑스박스 해결)
