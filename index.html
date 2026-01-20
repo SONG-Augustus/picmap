@@ -45,14 +45,16 @@
 
     /* 범례 */
     .map-legend {
-      margin-left: 6px; font-weight: bold;
       position: absolute; bottom: 20px; right: 20px; background: rgba(255,255,255,0.95);
       padding: 15px; border-radius: 10px; z-index: 10; font-size: 13px;
       box-shadow: 0 2px 5px rgba(0,0,0,0.3);
     }
     .legend-item { display: flex; align-items: center; margin: 5px 0; }
     .legend-color { width: 15px; height: 15px; border-radius: 50%; margin-right: 8px; }
-    
+    .legend-item span {
+      margin-left: auto;
+      font-weight: bold;
+    }
     /* 이미지 모달 */
     #imageModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 9999; justify-content: center; align-items: center; }
     #modalImage { max-width: 95%; max-height: 95%; border: 2px solid white; }
